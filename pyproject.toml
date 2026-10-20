@@ -3,17 +3,19 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cashpilot"
+name = "auditflow"
 version = "0.1.0"
-description = "CashPilot: AI invoice-factoring and cash-flow copilot for SMEs"
+description = "AuditFlow AI: privacy-preserving multi-agent working capital optimization for SMEs"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
-    "web3>=7.0",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
+    "numpy>=1.26",
+    "web3>=7.0",
+    "eth-account>=0.13",
     "anthropic>=0.40",
     "streamlit>=1.35",
     "pytest>=8.0",
@@ -21,7 +23,7 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["cashpilot*"]
+include = ["engine*", "services*", "experiments*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

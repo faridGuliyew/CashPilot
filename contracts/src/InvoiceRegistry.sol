@@ -4,28 +4,25 @@ pragma solidity ^0.8.24;
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {InvoiceNFT} from "./InvoiceNFT.sol";
 
 /// @title InvoiceRegistry
-/// @notice Registers invoices by hash (double-financing protection), records the buyer's
-///         confirmation (on-chain call or EIP-712 signature) and tokenizes confirmed invoices.
+/// @notice Registers invoices by hash (a hash can be used only once) and records the buyer's
+///         confirmation, either by a direct call or by an EIP-712 signature relayed by anyone.
+///         A confirmed invoice is marked Settled by the AgreementLedger once its early payment settles.
 contract InvoiceRegistry is AccessControl, EIP712 {
-    bytes32 public constant PROPOSER_ROLE = keccak256("PROPOSER_ROLE");
-    bytes32 public constant CONTROLLER_ROLE = keccak256("CONTROLLER_ROLE");
-    bytes32 public constant ESCROW_ROLE = keccak256("ESCROW_ROLE");
+    /// @notice Off-chain service allowed to register invoices for sellers that authorized it.
+    bytes32 public constant REGISTRAR_ROLE = keccak256("REGISTRAR_ROLE");
+    /// @notice The AgreementLedger contract.
+    bytes32 public constant SETTLER_ROLE = keccak256("SETTLER_ROLE");
 
     bytes32 public constant CONFIRMATION_TYPEHASH =
         keccak256("InvoiceConfirmation(uint256 invoiceId,bytes32 invoiceHash,uint256 faceValue,uint64 dueDate)");
-
-    uint256 public constant GRACE_PERIOD = 7 days;
 
     enum Status {
         None,
         Registered,
         Confirmed,
-        Financed,
-        Repaid,
-        Defaulted,
+        Settled,
         Cancelled
     }
 
@@ -38,12 +35,11 @@ contract InvoiceRegistry is AccessControl, EIP712 {
         Status status;
     }
 
-    InvoiceNFT public immutable nft;
     uint256 public nextInvoiceId = 1;
 
     mapping(uint256 => Invoice) private _invoices;
     mapping(bytes32 => bool) public hashUsed;
-    mapping(address => mapping(address => bool)) public sellerAuthorizedAgent;
+    mapping(address => mapping(address => bool)) public sellerAuthorizedRegistrar;
 
     error DuplicateInvoice(bytes32 invoiceHash);
     error NotAuthorizedToRegister();
@@ -52,9 +48,8 @@ contract InvoiceRegistry is AccessControl, EIP712 {
     error NotBuyer();
     error NotSeller();
     error InvalidBuyerSignature();
-    error GracePeriodNotOver();
 
-    event AgentAuthorizationSet(address indexed seller, address indexed agent, bool authorized);
+    event RegistrarAuthorizationSet(address indexed seller, address indexed registrar, bool authorized);
     event InvoiceRegistered(
         uint256 indexed invoiceId,
         bytes32 indexed invoiceHash,
@@ -65,33 +60,30 @@ contract InvoiceRegistry is AccessControl, EIP712 {
         address registeredBy
     );
     event InvoiceConfirmed(uint256 indexed invoiceId, address indexed buyer, bool viaSignature);
-    event InvoiceFinanced(uint256 indexed invoiceId);
-    event InvoiceRepaid(uint256 indexed invoiceId);
-    event InvoiceDefaulted(uint256 indexed invoiceId);
+    event InvoiceSettled(uint256 indexed invoiceId);
     event InvoiceCancelled(uint256 indexed invoiceId);
 
-    constructor(address admin, InvoiceNFT nft_) EIP712("CashPilot InvoiceRegistry", "1") {
+    constructor(address admin) EIP712("AuditFlow InvoiceRegistry", "1") {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        nft = nft_;
     }
 
-    // ----------------------------------------------------------------- seller / agent
+    // ----------------------------------------------------------------- seller / registrar
 
-    /// @notice Seller authorizes (or revokes) an agent to register invoices on its behalf.
-    function setAuthorizedAgent(address agent, bool authorized) external {
-        sellerAuthorizedAgent[msg.sender][agent] = authorized;
-        emit AgentAuthorizationSet(msg.sender, agent, authorized);
+    /// @notice Seller authorizes (or revokes) a registrar to register invoices on its behalf.
+    function setAuthorizedRegistrar(address registrar, bool authorized) external {
+        sellerAuthorizedRegistrar[msg.sender][registrar] = authorized;
+        emit RegistrarAuthorizationSet(msg.sender, registrar, authorized);
     }
 
-    /// @notice Registers an invoice. invoiceHash = keccak256(abi.encode(sellerTaxId, buyerTaxId,
-    ///         invoiceNumber, faceValue, dueDate)), computed off-chain.
+    /// @notice Registers an invoice. invoiceHash = keccak256(abi.encode(string sellerTaxId,
+    ///         string buyerTaxId, string invoiceNumber, uint256 faceValue, uint64 dueDate)), computed off-chain.
     function registerInvoice(bytes32 invoiceHash, address seller, address buyer, uint256 faceValue, uint64 dueDate)
         external
         returns (uint256 invoiceId)
     {
         bool isSeller = msg.sender == seller;
-        bool isAuthorizedAgent = hasRole(PROPOSER_ROLE, msg.sender) && sellerAuthorizedAgent[seller][msg.sender];
-        if (!isSeller && !isAuthorizedAgent) revert NotAuthorizedToRegister();
+        bool isRegistrar = hasRole(REGISTRAR_ROLE, msg.sender) && sellerAuthorizedRegistrar[seller][msg.sender];
+        if (!isSeller && !isRegistrar) revert NotAuthorizedToRegister();
         if (
             invoiceHash == bytes32(0) || seller == address(0) || buyer == address(0) || buyer == seller
                 || faceValue == 0 || dueDate <= block.timestamp
@@ -104,7 +96,7 @@ contract InvoiceRegistry is AccessControl, EIP712 {
         emit InvoiceRegistered(invoiceId, invoiceHash, seller, buyer, faceValue, dueDate, msg.sender);
     }
 
-    /// @notice Seller cancels an invoice that has not been financed yet. The hash stays used.
+    /// @notice Seller cancels an invoice that has not been settled. The hash stays used.
     function cancel(uint256 invoiceId) external {
         Invoice storage inv = _invoices[invoiceId];
         if (msg.sender != inv.seller) revert NotSeller();
@@ -112,7 +104,6 @@ contract InvoiceRegistry is AccessControl, EIP712 {
         if (s != Status.Registered && s != Status.Confirmed) revert InvalidStatus(invoiceId, s);
         inv.status = Status.Cancelled;
         emit InvoiceCancelled(invoiceId);
-        if (s == Status.Confirmed) nft.burn(invoiceId);
     }
 
     // ----------------------------------------------------------------- buyer confirmation
@@ -144,36 +135,15 @@ contract InvoiceRegistry is AccessControl, EIP712 {
         if (inv.status != Status.Registered) revert InvalidStatus(invoiceId, inv.status);
         inv.status = Status.Confirmed;
         emit InvoiceConfirmed(invoiceId, inv.buyer, viaSignature);
-        nft.mint(inv.seller, invoiceId);
     }
 
-    // ----------------------------------------------------------------- lifecycle (contracts only)
+    // ----------------------------------------------------------------- settlement (ledger only)
 
-    function setFinanced(uint256 invoiceId) external onlyRole(CONTROLLER_ROLE) {
+    function markSettled(uint256 invoiceId) external onlyRole(SETTLER_ROLE) {
         Invoice storage inv = _invoices[invoiceId];
         if (inv.status != Status.Confirmed) revert InvalidStatus(invoiceId, inv.status);
-        inv.status = Status.Financed;
-        emit InvoiceFinanced(invoiceId);
-    }
-
-    /// @dev Defaulted invoices can still be repaid late (recovery path).
-    function setRepaid(uint256 invoiceId) external onlyRole(ESCROW_ROLE) {
-        Invoice storage inv = _invoices[invoiceId];
-        Status s = inv.status;
-        if (s != Status.Confirmed && s != Status.Financed && s != Status.Defaulted) {
-            revert InvalidStatus(invoiceId, s);
-        }
-        inv.status = Status.Repaid;
-        emit InvoiceRepaid(invoiceId);
-    }
-
-    /// @notice Anyone can flag a financed invoice as defaulted once the grace period has passed.
-    function markDefaulted(uint256 invoiceId) external {
-        Invoice storage inv = _invoices[invoiceId];
-        if (inv.status != Status.Financed) revert InvalidStatus(invoiceId, inv.status);
-        if (block.timestamp <= uint256(inv.dueDate) + GRACE_PERIOD) revert GracePeriodNotOver();
-        inv.status = Status.Defaulted;
-        emit InvoiceDefaulted(invoiceId);
+        inv.status = Status.Settled;
+        emit InvoiceSettled(invoiceId);
     }
 
     // ----------------------------------------------------------------- views
