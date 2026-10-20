@@ -1,0 +1,54 @@
+{
+  "network": "base-sepolia",
+  "chain_id": 84532,
+  "contracts": {
+    "InvoiceRegistry": {
+      "address": "0xbcc371e3dfa3dc96e086bf46a673fd5abac873e4",
+      "tx_hash": "0xbd32103c19165f13134fd4908617011cabe594019e700e3038cc4f1080e719f5",
+      "block": 48357671
+    },
+    "AgreementLedger": {
+      "address": "0xad29ca179ca4aef902e461d556e1872d7300546d",
+      "tx_hash": "0x245a4efda6675c2edd0abf8d8f3da569454501f570f646addcd62ae7f790c335",
+      "block": 48357672
+    }
+  },
+  "setup_transactions": [
+    {
+      "function": "grantRole(bytes32,address)",
+      "to": "0xbcc371e3dfa3dc96e086bf46a673fd5abac873e4",
+      "tx_hash": "0xaf8850a9c6056181b6f9b043df779fc4f8670ed03b8f7447ea51750bb4f3102f",
+      "block": 48357673
+    },
+    {
+      "function": "grantRole(bytes32,address)",
+      "to": "0xbcc371e3dfa3dc96e086bf46a673fd5abac873e4",
+      "tx_hash": "0x60681a5a98a401b552502bc1b0ee338b5512dc04f8bd2e0ee23ef30e625b21e4",
+      "block": 48357674
+    },
+    {
+      "function": "grantRole(bytes32,address)",
+      "to": "0xad29ca179ca4aef902e461d556e1872d7300546d",
+      "tx_hash": "0x30aac32a5e395b57affd9683eb5cf73926031f2e70918b15ce401cdc3d26b375",
+      "block": 48357675
+    },
+    {
+      "function": "transfer",
+      "to": "0x56eff03b68d973d796a1b7bc2f82f22c297f0ce4",
+      "tx_hash": "0x5b81a56ffd7d1c66defc521a4f8af71daad9f5152420e74615cc53370802f82b",
+      "block": 48357676
+    },
+    {
+      "function": "transfer",
+      "to": "0x512c6f67807208c520885d6914ee63237e331951",
+      "tx_hash": "0x8e7e5f5bcbf482ae03930b865b48f458b2ca8a5d96466927e674689bdcac96b7",
+      "block": 48357677
+    },
+    {
+      "function": "setAuthorizedRegistrar(address,bool)",
+      "to": "0xbcc371e3dfa3dc96e086bf46a673fd5abac873e4",
+      "tx_hash": "0x3ee9bb29e628dda1112a9ad0fdb5073d25bdbd2073db2db3fd104adac7902bde",
+      "block": 48357678
+    }
+  ]
+}
