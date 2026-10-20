@@ -53,6 +53,7 @@ service (trusted server-side code), not a zero-knowledge proof**.
 ## Quick start
 
 ```bash
+git clone --recurse-submodules https://github.com/fidankarimova/CashPilot.git && cd CashPilot
 make install        # Python 3.11+ venv + package (pip install -e .)
 make test           # forge test (contracts) + pytest
 make flow           # full flow in the terminal: detection -> negotiation -> approvals -> bank -> settlement -> ledger
