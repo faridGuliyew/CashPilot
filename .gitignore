@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Foundry
+out/
+cache/
+broadcast/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# Data
+*.db
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Leftover Gradle/Spring scaffold
+.gradle/
+build/
